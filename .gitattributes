@@ -1,0 +1,20 @@
+# Line-ending normalization, stated in the repo rather than in each machine's config.
+#
+# Without this file the result depends on the cloner's `core.autocrlf`: a collaborator with
+# autocrlf=false sees CRLF where another sees LF, and any file Power BI Desktop touches comes back
+# with its whole diff changed even when not a line was edited.
+#
+# The eol=lf form matters: a bare `* text=auto` or any `eol=crlf` rule makes some tooling reject
+# the repo on a line-ending rule. So there are no eol=crlf rules here; the working copy is
+# normalized to LF on add, and the diff does not grow.
+
+* text=auto eol=lf
+
+# Shell scripts run inside Linux CI. With CRLF the shebang becomes "#!/bin/sh\r" and the script
+# is no longer found.
+*.sh        text eol=lf
+
+# Binary blobs: never normalize.
+*.pbix      binary
+*.abf       binary
+*.parquet   binary

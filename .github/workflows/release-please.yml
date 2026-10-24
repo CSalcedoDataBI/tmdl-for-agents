@@ -1,0 +1,39 @@
+name: release-please
+
+on:
+  # Releases follow merges to main; release-please opens or updates the release PR.
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write  # to dispatch Validate on the release PR
+
+# A release cancelled halfway leaves tags and the release PR out of step, so never cancel.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release-please
+    # Public repo: GitHub runners only.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Reads release-please-config.json and .release-please-manifest.json; tags are vX.Y.Z.
+      - id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+      # A PR opened with GITHUB_TOKEN triggers no pull_request workflow, so Validate would never
+      # report on the release PR. A workflow_dispatch from GITHUB_TOKEN does run, on its branch.
+      - name: Run Validate on the release PR
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+        run: gh workflow run validate.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
