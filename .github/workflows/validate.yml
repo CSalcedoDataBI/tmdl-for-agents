@@ -1,0 +1,32 @@
+name: Validate
+
+on:
+  # The gate runs on pull requests. Pushes to main come from merged PRs, or from
+  # admin-bypass docs commits that the check does not need to see twice.
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only the latest push to a ref matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate
+    # Public repo: GitHub runners are free, and a self-hosted runner would run fork PRs locally.
+    runs-on: ubuntu-latest
+    # Anything past 10 min is a hang.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Repo checks (catalogue shape, skills frontmatter, workflow cost rules, names from the catalogue)
+        run: python scripts/check_repo.py
+      - name: Tests of the repo checks
+        run: python -m unittest discover -s tests
