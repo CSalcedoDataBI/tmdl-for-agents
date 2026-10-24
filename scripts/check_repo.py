@@ -46,21 +46,24 @@ def tmdl_keywords(body: str) -> list[str]:
     """
     out: list[str] = []
     expr_indent: int | None = None  # min indent of the current expression body; None if not in one
-    awaiting_body = False            # saw an opener; the next line's indent sets expr_indent
+    opener_indent: int | None = None  # indent of a line ending in `=`; the next line decides
     for raw in body.splitlines():
         if not raw.strip():
             continue
         indent = len(raw) - len(raw.lstrip())
-        if awaiting_body:
-            expr_indent = indent  # the expression body starts here, deeper than any property
-            awaiting_body = False
-            continue
+        if opener_indent is not None:
+            deeper = indent > opener_indent
+            opener_indent = None
+            if deeper:
+                expr_indent = indent  # the expression body starts here, deeper than any property
+                continue
+            # Not a body (an empty `source =`, a value ending in `=`): examine this line normally.
         if expr_indent is not None:
             if indent >= expr_indent:
                 continue  # still inside the expression body
             expr_indent = None  # back to the object's level; re-examine this line
         if raw.rstrip().endswith("="):
-            awaiting_body = True
+            opener_indent = indent
             continue
         m = TMDL_PROP_LINE.match(raw)
         if m:
@@ -126,8 +129,9 @@ def check_readme_numbers(cat: dict, root: Path = ROOT) -> list[str]:
     README is counted from the catalogue, not typed)."""
     errors: list[str] = []
     claims = [
-        (re.compile(r"(\d+)\s+object types?", re.I), len(cat["entries"]), "object types"),
-        (re.compile(r"(\d+)\s+(?:unique\s+)?property names?", re.I),
+        # `\s+` between the words too: prose wraps, and a claim split across lines is still a claim.
+        (re.compile(r"(\d+)\s+object\s+types?", re.I), len(cat["entries"]), "object types"),
+        (re.compile(r"(\d+)\s+(?:unique\s+)?property\s+names?", re.I),
          len(cat["all_props"]), "property names"),
     ]
     for name in ("README.md", "exports/README.md", "reference/README.md"):

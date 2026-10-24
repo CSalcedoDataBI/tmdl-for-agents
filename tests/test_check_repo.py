@@ -151,6 +151,22 @@ class TestCardCheck(unittest.TestCase):
         text = self.card("Partition", ["Name"], body)
         self.assertEqual(cr.check_card(text, "T", self.cat), [])
 
+    def test_line_ending_in_equals_without_deeper_body_still_checked(self):
+        # An opener with no deeper body (an empty `source =`, or a value ending in `=` such as
+        # base64 padding) must not swallow the properties at its own level.
+        body = (
+            "```tmdl\n"
+            "partition Sales = m\n"
+            "\tsource =\n"
+            "\tbogusProp: x\n"
+            "\tanotherBogus: y\n"
+            "```\n"
+        )
+        text = self.card("Partition", ["Name"], body)
+        errs = cr.check_card(text, "T", self.cat)
+        self.assertTrue(any("property keyword 'bogusProp'" in e for e in errs))
+        self.assertTrue(any("property keyword 'anotherBogus'" in e for e in errs))
+
 
 class TestRepoShape(unittest.TestCase):
     def test_catalog_file_exists(self):
@@ -158,6 +174,17 @@ class TestRepoShape(unittest.TestCase):
 
     def test_readme_numbers_match_catalogue(self):
         self.assertEqual(cr.check_readme_numbers(cr.load_catalog()), [])
+
+    def test_readme_number_wrapped_across_lines_is_checked(self):
+        # A claim that wraps between its words (`54 object` / `types`) must still be counted.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "README.md").write_text(
+                "the catalogue: **99 object\n  types** and **999 unique property\n  names**\n",
+                encoding="utf-8")
+            errs = cr.check_readme_numbers(cr.load_catalog(), Path(tmp))
+        self.assertTrue(any("says 99 object types" in e for e in errs))
+        self.assertTrue(any("says 999 property names" in e for e in errs))
 
     def test_full_repo_check_passes(self):
         """The repository as committed passes every check."""
