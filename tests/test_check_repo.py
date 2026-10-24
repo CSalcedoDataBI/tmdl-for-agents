@@ -65,6 +65,17 @@ class TestCardCheck(unittest.TestCase):
         errs = cr.check_card("no frontmatter here", "T", self.cat)
         self.assertTrue(any("missing frontmatter" in e for e in errs))
 
+    def test_flow_list_properties_validated(self):
+        # A YAML flow list must be validated too, not silently skipped.
+        text = "---\ntype: Measure\nproperties: [Name, FormatStrng]\n---\n"
+        errs = cr.check_card(text, "T", self.cat)
+        self.assertTrue(any("property 'FormatStrng'" in e for e in errs))
+
+    def test_missing_properties_is_error(self):
+        text = "---\ntype: Measure\n---\n\nbody"
+        errs = cr.check_card(text, "T", self.cat)
+        self.assertTrue(any("`properties` must be a non-empty list" in e for e in errs))
+
     # --- tmdl example blocks ---
 
     def test_valid_tmdl_example(self):
@@ -92,21 +103,52 @@ class TestCardCheck(unittest.TestCase):
         self.assertTrue(any("property keyword 'formatStrng'" in e for e in errs))
 
     def test_declaration_and_dax_lines_not_flagged(self):
-        # Nested declarations and DAX continuation lines must not be read as property keywords.
+        # A multi-line expression body is indented one level deeper than the properties, as real
+        # TMDL writes it. The DAX tokens are skipped; the property one level shallower is checked.
         body = (
             "```tmdl\n"
-            "table Sales\n"
-            "\tcolumn Amount\n"
-            "\t\tdataType: decimal\n"
-            "\tmeasure 'Total' =\n"
+            "measure 'Total' =\n"
             "\t\tSUMX(\n"
             "\t\t\tSales,\n"
             "\t\t\tSales[Qty] * Sales[Price]\n"
             "\t\t)\n"
-            "\t\tformatString: \"#,0\"\n"
+            "\tformatString: \"#,0\"\n"
             "```\n"
         )
-        text = self.card("Table", ["Name"], body)
+        text = self.card("Measure", ["Name"], body)
+        self.assertEqual(cr.check_card(text, "T", self.cat), [])
+
+    def test_invented_keyword_after_multiline_expression(self):
+        # The property that follows a multi-line expression must still be name-checked (the core
+        # 'no invented name' promise must survive a multi-line DAX / M body).
+        body = (
+            "```tmdl\n"
+            "measure 'Total' =\n"
+            "\t\tSUMX(\n"
+            "\t\t\tSales,\n"
+            "\t\t\tSales[Qty]\n"
+            "\t\t)\n"
+            "\tformatStrng: \"#,0\"\n"
+            "```\n"
+        )
+        text = self.card("Measure", ["Name"], body)
+        errs = cr.check_card(text, "T", self.cat)
+        self.assertTrue(any("property keyword 'formatStrng'" in e for e in errs))
+
+    def test_multiline_m_expression_body_not_flagged(self):
+        # `source =` opens an M block; `let`/`in` must not be read as property keywords.
+        body = (
+            "```tmdl\n"
+            "partition Sales = m\n"
+            "\tmode: import\n"
+            "\tsource =\n"
+            "\t\t\tlet\n"
+            "\t\t\t\tSource = Sql.Database(\"s\", \"db\")\n"
+            "\t\t\tin\n"
+            "\t\t\t\tSource\n"
+            "```\n"
+        )
+        text = self.card("Partition", ["Name"], body)
         self.assertEqual(cr.check_card(text, "T", self.cat), [])
 
 
@@ -114,10 +156,13 @@ class TestRepoShape(unittest.TestCase):
     def test_catalog_file_exists(self):
         self.assertTrue((cr.ROOT / "exports" / "tmdl-tom.catalog.json").exists())
 
+    def test_readme_numbers_match_catalogue(self):
+        self.assertEqual(cr.check_readme_numbers(cr.load_catalog()), [])
+
     def test_full_repo_check_passes(self):
         """The repository as committed passes every check."""
         cat = cr.load_catalog()
-        result = (cr.check_catalog_shape(cat) + cr.check_skills()
+        result = (cr.check_catalog_shape(cat) + cr.check_readme_numbers(cat) + cr.check_skills()
                   + cr.check_workflows() + cr.check_names(cat))
         self.assertEqual(result, [])
 
